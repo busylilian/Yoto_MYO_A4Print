@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Yoto Card A4 排版工具 (進階版)</title>
+    <title>Yoto Card A4 排版工具 (修復版)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         /* A4 Paper Settings */
@@ -46,7 +46,7 @@
         .card-slot {
             width: 85.6mm;
             height: 54mm;
-            border: 1px dashed #ccc;
+            border: 2px dashed #ccc; /* Thicker border for visibility */
             border-radius: 3mm;
             position: relative;
             overflow: hidden;
@@ -67,9 +67,9 @@
 
         /* Selected state */
         .card-slot.selected {
-            border: 2px solid #2563eb; /* Blue border */
+            border: 3px solid #2563eb; /* Very distinct blue border */
             z-index: 10;
-            box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.3);
+            box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.2);
         }
 
         .card-slot img {
@@ -79,13 +79,14 @@
             /* Default to covering the area */
             min-width: 100%;
             min-height: 100%;
-            max-width: none;
-            max-height: none;
-            pointer-events: none; /* Let events pass to container for drag logic */
+            pointer-events: none; /* Allows drag logic on container */
         }
         
         .card-slot.has-image {
             cursor: grab;
+            border-style: solid; /* Solid border for filled cards */
+            border-width: 1px;
+            border-color: #ddd;
         }
         
         .card-slot.has-image:active {
@@ -121,14 +122,27 @@
                 page-break-after: always;
             }
             .card-slot {
-                border: 0.5px solid #ddd;
+                border: 0.5px solid #ccc; /* Light border for cutting guide */
                 border-radius: 0; /* Straight corners for cutting */
             }
             .card-slot.selected {
-                border: 0.5px solid #ddd;
+                border: 0.5px solid #ccc;
                 box-shadow: none;
             }
         }
+        
+        /* Loading Spinner */
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            display: none;
+            margin: 0 auto 5px auto;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
@@ -136,16 +150,16 @@
     <!-- Top Header -->
     <div class="no-print fixed top-0 left-0 right-0 bg-white shadow-sm p-4 z-40 flex justify-between items-center h-16">
         <div>
-            <h1 class="text-xl font-bold text-gray-800">Yoto 封面排版工具 (進階版)</h1>
+            <h1 class="text-xl font-bold text-gray-800">Yoto 封面排版工具</h1>
         </div>
         <div class="flex gap-2">
-            <button onclick="clearAll()" class="px-4 py-2 text-sm bg-red-50 text-red-600 rounded hover:bg-red-100 transition">清空全部</button>
+            <button onclick="clearAll()" class="px-3 py-2 text-sm bg-red-50 text-red-600 rounded hover:bg-red-100 transition border border-red-100">清空</button>
             <button onclick="window.print()" class="px-4 py-2 text-sm bg-blue-600 text-white font-bold rounded hover:bg-blue-700 shadow transition flex items-center gap-2">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
                     <path d="M2.5 8a.5.5 0 1 0 0-1 .5.5 0 0 0 0 1z"/>
                     <path d="M5 1a2 2 0 0 0-2 2v2H2a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h1v1a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-1h1a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-1V3a2 2 0 0 0-2-2H5zM4 3a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2H4V3zm1 9a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2H5v-2z"/>
                 </svg>
-                列印 / PDF
+                列印
             </button>
         </div>
     </div>
@@ -204,7 +218,8 @@
         <div class="text-xs text-gray-400 text-center mt-2 sm:hidden">提示：你可以用手指拖曳圖片來調整位置</div>
     </div>
 
-    <input type="file" id="fileInput" accept="image/*" style="display: none;">
+    <!-- Hidden File Input (Using opacity 0 instead of display none for better browser compatibility) -->
+    <input type="file" id="fileInput" accept="image/*" style="position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0;">
 
     <script>
         const grid = document.getElementById('grid');
@@ -212,8 +227,6 @@
         const toolbar = document.getElementById('toolbar');
         const zoomControl = document.getElementById('zoomControl');
         
-        // State management for all slots
-        // Format: { id: index, hasImage: bool, src: string, rotation: 0, scale: 1, x: 0, y: 0, fitMode: 'cover' }
         let slotsState = Array(10).fill(null).map((_, i) => ({
             id: i,
             hasImage: false,
@@ -222,7 +235,7 @@
             scale: 1,
             x: 0,
             y: 0,
-            fitMode: 'cover' // 'cover' or 'contain'
+            fitMode: 'cover'
         }));
 
         let selectedSlotId = null;
@@ -236,15 +249,23 @@
             slot.id = `slot-${i}`;
             slot.innerHTML = `
                 <div class="placeholder-text group-hover:text-red-400">
-                    <span class="text-2xl block mb-1">+</span>
-                    上傳 #${i + 1}
+                    <div class="spinner"></div>
+                    <span class="text-2xl block mb-1 plus-icon">+</span>
+                    <span class="status-text">點擊上傳</span>
                 </div>
                 <img src="" alt="" style="display:none">
             `;
             
-            // Event Listeners
-            slot.addEventListener('click', (e) => handleSlotClick(i, e));
-            slot.addEventListener('mousedown', (e) => startDrag(i, e));
+            // Event Listeners with stopPropagation to protect selection state
+            slot.addEventListener('click', (e) => {
+                e.stopPropagation(); // Critical fix
+                handleSlotClick(i, e);
+            });
+            slot.addEventListener('mousedown', (e) => {
+                // Don't stop propagation on mousedown, or we can't drag well?
+                // Actually drag is handled by document listeners.
+                startDrag(i, e);
+            });
             
             grid.appendChild(slot);
         });
@@ -252,19 +273,21 @@
         // Global Drag Listeners
         document.addEventListener('mousemove', drag);
         document.addEventListener('mouseup', stopDrag);
+        
+        // Toolbar click protection
+        toolbar.addEventListener('click', (e) => e.stopPropagation());
 
         function handleSlotClick(index, e) {
             const state = slotsState[index];
             
-            // If dragging occurred, don't treat it as a click
             if (isDragging) return;
 
             if (!state.hasImage) {
-                // Empty slot -> Upload
+                // Upload Flow
                 selectedSlotId = index;
                 fileInput.click();
             } else {
-                // Filled slot -> Select for editing
+                // Edit Flow
                 selectSlot(index);
             }
         }
@@ -272,30 +295,47 @@
         function selectSlot(index) {
             // Deselect previous
             if (selectedSlotId !== null && selectedSlotId !== index) {
-                document.getElementById(`slot-${selectedSlotId}`).classList.remove('selected');
+                const prev = document.getElementById(`slot-${selectedSlotId}`);
+                if(prev) prev.classList.remove('selected');
             }
 
             selectedSlotId = index;
             const slotEl = document.getElementById(`slot-${index}`);
-            slotEl.classList.add('selected');
+            if(slotEl) slotEl.classList.add('selected');
             
             // Update Toolbar UI
             const state = slotsState[index];
             zoomControl.value = state.scale;
-            toolbar.classList.remove('translate-y-full'); // Show toolbar
+            toolbar.classList.remove('translate-y-full');
         }
 
         function deselectSlot() {
             if (selectedSlotId !== null) {
-                document.getElementById(`slot-${selectedSlotId}`).classList.remove('selected');
+                const slot = document.getElementById(`slot-${selectedSlotId}`);
+                if(slot) slot.classList.remove('selected');
                 selectedSlotId = null;
-                toolbar.classList.add('translate-y-full'); // Hide toolbar
+                toolbar.classList.add('translate-y-full');
             }
         }
 
         // File Input Handler
         fileInput.addEventListener('change', (e) => {
-            if (e.target.files && e.target.files[0] && selectedSlotId !== null) {
+            if (e.target.files && e.target.files[0]) {
+                if (selectedSlotId === null) {
+                    console.error("No slot selected for upload");
+                    return;
+                }
+                
+                // Show loading state
+                const slotEl = document.getElementById(`slot-${selectedSlotId}`);
+                const spinner = slotEl.querySelector('.spinner');
+                const plus = slotEl.querySelector('.plus-icon');
+                const status = slotEl.querySelector('.status-text');
+                
+                if(spinner) spinner.style.display = 'block';
+                if(plus) plus.style.display = 'none';
+                if(status) status.innerText = "處理中...";
+
                 const reader = new FileReader();
                 reader.onload = (e) => {
                     const state = slotsState[selectedSlotId];
@@ -310,11 +350,16 @@
                     
                     updateSlotVisual(selectedSlotId);
                     
-                    // Auto-select for editing immediately after upload
+                    // Reset loading UI (hidden by updateSlotVisual anyway)
+                    if(spinner) spinner.style.display = 'none';
+                    if(plus) plus.style.display = 'block';
+                    if(status) status.innerText = "點擊上傳";
+                    
                     selectSlot(selectedSlotId);
-                }
+                };
                 reader.readAsDataURL(e.target.files[0]);
             }
+            // Always clear input to allow re-selecting same file
             fileInput.value = '';
         });
 
@@ -337,47 +382,29 @@
                 imgEl.src = state.src;
                 
                 // Apply Layout Logic
-                // To rotate and scale properly, we rely on transform.
-                // However, fitting 'contain' vs 'cover' with custom transforms is tricky.
-                // Simple approach: Use object-fit for base, then transform for rotation/zoom.
-                
-                if (state.rotation % 180 !== 0) {
-                     // If rotated 90/270, we need to handle aspect ratio carefully if we want "fit".
-                     // But for simplicity with Zoom, we treat the image as a free element.
-                }
-
                 imgEl.style.transform = `translate(${state.x}px, ${state.y}px) rotate(${state.rotation}deg) scale(${state.scale})`;
                 
-                // Toggle Object fit based on mode (Only works well when rotation is 0)
-                // When utilizing manual zoom/move, object-fit usually fights with us.
-                // So we switch: if default, use object-fit. If edited, use pure transform?
-                // Let's stick to: object-fit handles the "base" look, transform handles modifications.
-                
-                if (state.scale === 1 && state.x === 0 && state.y === 0 && state.rotation === 0) {
-                     imgEl.style.objectFit = state.fitMode;
-                     // Reset transforms if just fitting
-                     imgEl.style.width = "100%";
-                     imgEl.style.height = "100%";
+                // Fit Mode Logic
+                if (state.fitMode === 'cover') {
+                    // Force minimum dimensions to cover the box
+                    imgEl.style.minWidth = "100%";
+                    imgEl.style.minHeight = "100%";
+                    imgEl.style.maxWidth = "none";
+                    imgEl.style.maxHeight = "none";
+                    imgEl.style.objectFit = "cover"; // Helps initial render
                 } else {
-                     // Once we start messing with zoom/rotate, switch to auto size
-                     imgEl.style.objectFit = "unset"; 
-                     // We need the image to be its natural size or constrained?
-                     // Let's make it cover by default logic via CSS rules, then transform modifies it.
-                     // A robust way for this simple editor:
-                     // 1. Center image. 
-                     // 2. fitMode 'cover' sets min-width/height to 100%. 'contain' sets max-width/height 100%.
-                     
-                     if (state.fitMode === 'cover') {
-                         imgEl.style.minWidth = "100%";
-                         imgEl.style.minHeight = "100%";
-                         imgEl.style.maxWidth = "none";
-                         imgEl.style.maxHeight = "none";
-                     } else {
-                         imgEl.style.minWidth = "auto";
-                         imgEl.style.minHeight = "auto";
-                         imgEl.style.maxWidth = "100%";
-                         imgEl.style.maxHeight = "100%";
-                     }
+                    // Contain logic
+                    imgEl.style.minWidth = "auto";
+                    imgEl.style.minHeight = "auto";
+                    imgEl.style.maxWidth = "100%";
+                    imgEl.style.maxHeight = "100%";
+                    imgEl.style.objectFit = "contain";
+                }
+
+                // If user has manipulated position/scale, object-fit might fight transform. 
+                // But for simple "cover/contain" base + transform, this is usually acceptable.
+                if (state.scale !== 1 || state.x !== 0 || state.y !== 0) {
+                     imgEl.style.objectFit = "unset";
                 }
 
             } else {
@@ -385,6 +412,14 @@
                 placeholder.style.display = 'block';
                 imgEl.style.display = 'none';
                 imgEl.src = '';
+                
+                // Reset placeholder text in case it was stuck on "Loading"
+                const spinner = slotEl.querySelector('.spinner');
+                const plus = slotEl.querySelector('.plus-icon');
+                const status = slotEl.querySelector('.status-text');
+                if(spinner) spinner.style.display = 'none';
+                if(plus) plus.style.display = 'block';
+                if(status) status.innerText = "點擊上傳";
             }
         }
 
@@ -407,7 +442,7 @@
             if (selectedSlotId === null) return;
             const state = slotsState[selectedSlotId];
             state.fitMode = state.fitMode === 'cover' ? 'contain' : 'cover';
-            // Reset position on fit toggle for sanity
+            // Reset position on fit toggle
             state.x = 0;
             state.y = 0;
             state.scale = 1; 
@@ -430,6 +465,7 @@
             if(confirm('確定要清空所有圖片？')) {
                 slotsState.forEach(s => {
                     s.hasImage = false;
+                    s.src = '';
                     updateSlotVisual(s.id);
                 });
                 deselectSlot();
@@ -439,11 +475,10 @@
         // Dragging Logic
         function startDrag(index, e) {
             if (!slotsState[index].hasImage) return;
-            // Only allow drag if selected to avoid accidental moves? 
-            // Better UX: auto-select on mousedown
+            // Drag triggers selection
             if (selectedSlotId !== index) selectSlot(index);
             
-            e.preventDefault(); // Prevent default browser drag
+            e.preventDefault(); 
             isDragging = true;
             startX = e.clientX - slotsState[index].x;
             startY = e.clientY - slotsState[index].y;
@@ -471,9 +506,9 @@
 
         // Global click to deselect if clicking outside
         document.addEventListener('click', (e) => {
-            if (!e.target.closest('.card-slot') && !e.target.closest('#toolbar') && !e.target.closest('button')) {
-                deselectSlot();
-            }
+            // Because we used stopPropagation on slots and toolbar, 
+            // any click that reaches document is "outside".
+            deselectSlot();
         });
 
     </script>
